@@ -267,6 +267,97 @@ const revalidateProjects = async () => {
     }
 };
 
+// --- Open source: stale-while-revalidate GitHub star counts ------------------
+// prerender.js bakes star counts at build time. This keeps them current on the
+// client without a rebuild, using 2 bulk requests (one per owner) instead of one
+// per repo. Cache TTL is 8 hours — stars change rarely, and the unauthenticated
+// GitHub API allows 60 req/hr per IP; 2 requests plus an 8-hour cache makes
+// exhaustion essentially impossible even for frequent visitors.
+const revalidateGithubStars = async () => {
+    const cards = $$('.os-card');
+    if (!cards.length) return;
+
+    const CACHE_KEY = 'gh_stars_v1';
+    const TTL_MS = 8 * 60 * 60 * 1000;
+
+    const repoMap = new Map();
+    for (const card of cards) {
+        const src = card.querySelector('.os-link-src');
+        const starSpan = card.querySelector('[title="GitHub stars"]');
+        if (!src || !starSpan) continue;
+        const m = src.href.match(/github\.com\/([^/?#]+\/[^/?#]+)/);
+        if (!m) continue;
+        repoMap.set(m[1], starSpan);
+    }
+    if (!repoMap.size) return;
+
+    const applyStars = (data) => {
+        for (const [repo, span] of repoMap) {
+            const count = data[repo];
+            if (typeof count !== 'number') continue;
+            const tn = span.lastChild;
+            if (tn?.nodeType !== Node.TEXT_NODE) continue;
+            if (!span.style.minWidth) span.style.minWidth = span.getBoundingClientRect().width + 'px';
+            tn.nodeValue = String(count);
+        }
+    };
+
+    let cached = null;
+    try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+            const p = JSON.parse(raw);
+            if (p?.ts && p?.data) cached = p;
+        }
+    } catch {}
+
+    const isFresh = cached && Date.now() - cached.ts < TTL_MS;
+    if (cached) applyStars(cached.data);
+    if (isFresh) return;
+
+    try {
+        const hdrs = { 'User-Agent': 'shalomkarr-portfolio', Accept: 'application/vnd.github+json' };
+        const repos = [...repoMap.keys()];
+
+        const ownerTally = {};
+        for (const r of repos) { const o = r.split('/')[0]; ownerTally[o] = (ownerTally[o] || 0) + 1; }
+        const mainOwner = Object.entries(ownerTally).sort((a, b) => b[1] - a[1])[0][0];
+        const personal = repos.filter(r => r.startsWith(mainOwner + '/'));
+        const external = repos.filter(r => !r.startsWith(mainOwner + '/'));
+
+        const [bulkRes1, bulkRes2, ...extRes] = await Promise.all([
+            fetch(`https://api.github.com/users/${mainOwner}/repos?per_page=100&page=1`, { headers: hdrs }),
+            fetch(`https://api.github.com/users/${mainOwner}/repos?per_page=100&page=2`, { headers: hdrs }),
+            ...external.map(r => fetch(`https://api.github.com/repos/${r}`, { headers: hdrs })),
+        ]);
+
+        const next = {};
+        const nameSet = new Set(personal.map(r => r.split('/')[1]));
+
+        for (const bulkRes of [bulkRes1, bulkRes2]) {
+            if (!bulkRes.ok) continue;
+            const list = await bulkRes.json();
+            if (Array.isArray(list)) {
+                for (const item of list) {
+                    if (nameSet.has(item.name) && typeof item.stargazers_count === 'number') {
+                        next[`${mainOwner}/${item.name}`] = item.stargazers_count;
+                    }
+                }
+            }
+        }
+
+        for (let i = 0; i < external.length; i++) {
+            if (!extRes[i]?.ok) continue;
+            const j = await extRes[i].json();
+            if (typeof j.stargazers_count === 'number') next[external[i]] = j.stargazers_count;
+        }
+
+        if (!Object.keys(next).length) return;
+        applyStars(next);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: next })); } catch {}
+    } catch {}
+};
+
 // --- Blog: revalidate the prerendered "latest posts" -------------------------
 // The three cards are baked at build time; this refreshes them live on idle so a
 // newly published post appears without a rebuild. Markup mirrors postCardHTML in
@@ -586,6 +677,7 @@ addEventListener('load', () => {
     onIdle(() => {
         revalidateProjects();
         revalidateBlogPosts();
+        revalidateGithubStars();
         initAnalytics();
         import('./tracker.js').then(m => m.initTracker?.()).catch(() => {});
     });

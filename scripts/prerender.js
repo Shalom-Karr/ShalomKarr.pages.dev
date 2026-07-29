@@ -114,7 +114,7 @@ const OPEN_SOURCE = [
         blurb: 'A Discourse plugin bundle powering forums.jtechforums.org — dislikes, custom SMTP, a mini-moderation toolkit and moderator category controls, one install behind six admin tabs.',
     },
     {
-        name: 'SK Music', repo: 'Shalom-Karr/SK-Music', stars: 5,
+        name: 'SK Music', repo: 'Shalom-Karr/SK-Music', stars: 9,
         lang: 'JavaScript', color: '#F7DF1E', live: 'https://skmusic.shalomkarr.workers.dev/',
         blurb: 'A kosher filtered music client on Cloudflare Workers — a build-baked catalog, Hebrew-aware search that runs entirely in the browser, and an installable PWA. No search backend.',
     },
@@ -207,24 +207,57 @@ const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
-// Live star counts, fetched once at build time. Unauthenticated GitHub allows 60 req/hr
-// per IP — deploys are far rarer than that. Any repo that fails keeps its baked fallback.
+// Live star counts, fetched once at build time using 2 bulk requests rather than one
+// per repo. The personal-account endpoint returns all repos in a single call; the one
+// org repo (JtechTools) gets a separate individual request. Any failure keeps the
+// baked fallback — a network blip at build time never ships a zeroed-out count.
 const fetchStars = async () => {
     const counts = {};
+    for (const p of OPEN_SOURCE) counts[p.repo] = p.stars;
+
+    const hdrs = { 'User-Agent': 'shalomkarr-portfolio-build', Accept: 'application/vnd.github+json' };
+    const signal = AbortSignal.timeout(8000);
+
+    const ownerTally = {};
+    for (const p of OPEN_SOURCE) {
+        const o = p.repo.split('/')[0];
+        ownerTally[o] = (ownerTally[o] || 0) + 1;
+    }
+    const mainOwner = Object.entries(ownerTally).sort((a, b) => b[1] - a[1])[0][0];
+    const personal = OPEN_SOURCE.filter(p => p.repo.startsWith(mainOwner + '/'));
+    const external = OPEN_SOURCE.filter(p => !p.repo.startsWith(mainOwner + '/'));
+
     let fetched = 0;
-    await Promise.all(OPEN_SOURCE.map(async (p) => {
-        counts[p.repo] = p.stars;
+
+    try {
+        const [res1, res2] = await Promise.all([
+            fetch(`https://api.github.com/users/${mainOwner}/repos?per_page=100&page=1`, { headers: hdrs, signal }),
+            fetch(`https://api.github.com/users/${mainOwner}/repos?per_page=100&page=2`, { headers: hdrs, signal }),
+        ]);
+        const nameMap = {};
+        for (const res of [res1, res2]) {
+            if (!res.ok) continue;
+            const list = await res.json();
+            if (Array.isArray(list)) {
+                for (const item of list) nameMap[item.name] = item.stargazers_count;
+            }
+        }
+        for (const p of personal) {
+            const name = p.repo.split('/')[1];
+            if (typeof nameMap[name] === 'number') { counts[p.repo] = nameMap[name]; fetched++; }
+        }
+    } catch {}
+
+    await Promise.all(external.map(async (p) => {
         try {
-            const r = await fetch(`https://api.github.com/repos/${p.repo}`, {
-                headers: { 'User-Agent': 'shalomkarr-portfolio-build', Accept: 'application/vnd.github+json' },
-                signal: AbortSignal.timeout(8000),
-            });
-            if (r.ok) {
-                const j = await r.json();
+            const res = await fetch(`https://api.github.com/repos/${p.repo}`, { headers: hdrs, signal });
+            if (res.ok) {
+                const j = await res.json();
                 if (typeof j.stargazers_count === 'number') { counts[p.repo] = j.stargazers_count; fetched++; }
             }
-        } catch { /* keep fallback */ }
+        } catch {}
     }));
+
     return { counts, fetched };
 };
 
