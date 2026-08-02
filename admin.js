@@ -852,7 +852,18 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
 
 const loadClicks = async () => {
     const host = document.getElementById('clicks-panels');
-    host.innerHTML = '<p class="text-gray-500 py-8 text-center">Loading…</p>';
+
+    // A pulsing skeleton reads as "working" far better than the word Loading, and
+    // it holds the layout so nothing jumps when the data lands.
+    const skeletonCard = 'h-24 rounded-xl bg-gray-800/60 animate-pulse';
+    const skeletonPanel = 'h-48 rounded-xl bg-gray-800/60 animate-pulse';
+    host.innerHTML = `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            ${Array(8).fill(`<div class="${skeletonCard}"></div>`).join('')}
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${Array(4).fill(`<div class="${skeletonPanel}"></div>`).join('')}
+        </div>`;
 
     const days = Number(document.getElementById('clicksRange')?.value || 30);
     const { data, error } = await supabase.rpc('site_dashboard_summary', {
@@ -863,116 +874,147 @@ const loadClicks = async () => {
         const hint = error.code === '42883' || error.code === '42P01'
             ? '<br><span class="text-gray-400">Run supabase/site_events.sql — the table and function do not exist yet.</span>'
             : '';
-        host.innerHTML = `<p class="text-red-500 py-8 text-center">Error: ${esc(error.message)}${hint}</p>`;
+        host.innerHTML = `<div class="rounded-xl border border-red-900/50 bg-red-950/30 p-8 text-center text-red-400">Error: ${esc(error.message)}${hint}</div>`;
         return;
     }
 
     const d = data || {};
     const t = d.totals || {};
     const r = d.rates || {};
-
-    const stat = (label, value, sub = '') => `
-        <div class="bg-gray-900 rounded p-4">
-            <p class="text-xs uppercase text-gray-500">${label}</p>
-            <p class="text-2xl font-semibold text-blue-400">${value}</p>
-            ${sub ? `<p class="text-xs text-gray-500 mt-1">${sub}</p>` : ''}
-        </div>`;
-
     const n = (v) => Number(v || 0).toLocaleString();
 
-    const bars = (title, rows, fmt = (k) => k) => {
+    // One accent per stat, cohesive rather than a rainbow: cyan family with a
+    // couple of warm outliers so the eye can group them.
+    const stat = (label, value, sub, accent = 'text-cyan-300') => `
+        <div class="group relative rounded-xl border border-gray-700/60 bg-gray-800/40 p-4 overflow-hidden
+                    transition hover:border-gray-600 hover:bg-gray-800/70">
+            <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent
+                        opacity-0 group-hover:opacity-100 transition"></div>
+            <p class="text-[11px] uppercase tracking-wider text-gray-500">${label}</p>
+            <p class="mt-1 text-3xl font-bold tracking-tight tabular-nums ${accent}">${value}</p>
+            ${sub ? `<p class="mt-1 text-xs text-gray-500">${sub}</p>` : ''}
+        </div>`;
+
+    // A titled panel with a small accent dot, so every block reads as one system.
+    const panel = (title, inner, span = '') => `
+        <div class="rounded-xl border border-gray-700/60 bg-gray-800/40 p-4 ${span}">
+            <h3 class="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>${title}
+            </h3>${inner}</div>`;
+
+    const bars = (title, rows, fmt = (k) => k, span = '') => {
         const list = rows || [];
         const max = Math.max(1, ...list.map((x) => Number(x.n)));
-        return `
-        <div class="bg-gray-900 rounded p-4">
-            <h3 class="text-sm font-semibold text-gray-300 mb-3">${title}</h3>
-            ${list.length ? list.map((x) => `
-                <div class="mb-2">
-                    <div class="flex justify-between text-xs mb-0.5">
-                        <span class="text-gray-300 truncate pr-2">${esc(fmt(x.key))}</span>
-                        <span class="text-gray-500 tabular-nums">${n(x.n)}</span>
+        const inner = list.length ? list.map((x) => {
+            const pct = (Number(x.n) / max) * 100;
+            return `
+                <div class="mb-2.5 last:mb-0">
+                    <div class="mb-1 flex items-baseline justify-between gap-2 text-xs">
+                        <span class="truncate text-gray-300">${esc(fmt(x.key)) || '<span class="text-gray-600">—</span>'}</span>
+                        <span class="shrink-0 tabular-nums text-gray-500">${n(x.n)}</span>
                     </div>
-                    <div class="h-1.5 bg-gray-800 rounded overflow-hidden">
-                        <div class="h-full bg-blue-500" style="width:${(x.n / max) * 100}%"></div>
+                    <div class="h-2 overflow-hidden rounded-full bg-gray-900/70">
+                        <div class="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400"
+                             style="width:${pct.toFixed(1)}%"></div>
                     </div>
-                </div>`).join('') : '<p class="text-xs text-gray-600">No data</p>'}
-        </div>`;
+                </div>`;
+        }).join('') : '<p class="py-6 text-center text-xs text-gray-600">No data yet</p>';
+        return panel(title, inner, span);
     };
 
-    // day-of-week x hour grid. Colour is relative to the busiest cell, so the
-    // pattern reads regardless of overall traffic volume.
+    // day x hour heatmap. Non-zero cells get a floor opacity so a single visit is
+    // still visible next to a busy hour, and there is a legend.
     const heat = (() => {
         const cells = d.heatmap || [];
-        if (!cells.length) return '';
-        const max = Math.max(...cells.map((c) => Number(c.n)));
+        const max = Math.max(1, ...cells.map((c) => Number(c.n)));
         const at = (dow, h) => Number(cells.find((c) => c.dow === dow && c.hour === h)?.n || 0);
-        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        return `
-        <div class="bg-gray-900 rounded p-4 col-span-2">
-            <h3 class="text-sm font-semibold text-gray-300 mb-3">When people visit</h3>
-            <div class="overflow-x-auto"><table class="text-[10px]"><tbody>
-            ${dayNames.map((name, dow) => `<tr>
-                <td class="pr-2 text-gray-500 text-right">${name}</td>
+        const days3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const grid = `
+            <div class="overflow-x-auto"><table class="border-separate" style="border-spacing:2px"><tbody>
+            ${days3.map((name, dow) => `<tr>
+                <td class="pr-2 text-right text-[10px] text-gray-500">${name}</td>
                 ${Array.from({ length: 24 }, (_, h) => {
                     const v = at(dow, h);
-                    const o = max ? v / max : 0;
-                    return `<td title="${name} ${h}:00 — ${v}"
-                        style="background:rgba(59,130,246,${o.toFixed(3)})"
-                        class="w-3 h-3 border border-gray-800"></td>`;
+                    const o = v ? 0.15 + 0.85 * (v / max) : 0;
+                    return `<td title="${name} ${h}:00 — ${v} event${v === 1 ? '' : 's'}"
+                        style="background:${v ? `rgba(34,211,238,${o.toFixed(3)})` : 'rgba(255,255,255,0.03)'}"
+                        class="h-3.5 w-3.5 rounded-sm"></td>`;
                 }).join('')}
             </tr>`).join('')}
             <tr><td></td>${Array.from({ length: 24 }, (_, h) =>
-                `<td class="text-gray-600 text-center">${h % 6 === 0 ? h : ''}</td>`).join('')}</tr>
+                `<td class="text-center text-[9px] text-gray-600">${h % 6 === 0 ? h : ''}</td>`).join('')}</tr>
             </tbody></table></div>
-        </div>`;
+            <div class="mt-3 flex items-center gap-1.5 text-[10px] text-gray-500">
+                Less
+                ${[0.03, 0.25, 0.5, 0.75, 1].map((o) =>
+                    `<span class="h-2.5 w-2.5 rounded-sm" style="background:rgba(34,211,238,${o})"></span>`).join('')}
+                More
+            </div>`;
+        return panel('When people visit', grid, 'md:col-span-2');
     })();
 
+    const badge = (ev) => ({
+        outbound: 'bg-amber-500/15 text-amber-300 ring-amber-500/30',
+        click: 'bg-sky-500/15 text-sky-300 ring-sky-500/30',
+        exit: 'bg-gray-500/15 text-gray-400 ring-gray-500/30',
+        view: 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/30',
+    }[ev] || 'bg-gray-500/15 text-gray-400 ring-gray-500/30');
+
     const recent = (d.recent || []).slice(0, 40).map((e) => `
-        <tr class="border-b border-gray-800">
-            <td class="px-3 py-1.5 text-gray-400 whitespace-nowrap">${new Date(e.created_at).toLocaleString()}</td>
-            <td class="px-3 py-1.5"><span class="px-1.5 py-0.5 rounded text-[10px] ${
-                e.event === 'outbound' ? 'bg-amber-900 text-amber-300'
-                : e.event === 'click' ? 'bg-blue-900 text-blue-300'
-                : e.event === 'exit' ? 'bg-gray-700 text-gray-400'
-                : 'bg-green-900 text-green-300'}">${esc(e.event)}</span></td>
-            <td class="px-3 py-1.5 text-gray-300 truncate max-w-[10rem]">${esc(e.path || '')}</td>
-            <td class="px-3 py-1.5 text-gray-400 truncate max-w-[12rem]">${esc(e.label || '')}</td>
-            <td class="px-3 py-1.5 text-gray-500 whitespace-nowrap">${esc([e.city, e.country].filter(Boolean).join(', '))}</td>
-            <td class="px-3 py-1.5 text-gray-500 whitespace-nowrap">${esc(e.browser)} · ${esc(e.device)}</td>
+        <tr class="border-b border-gray-800/70 transition hover:bg-gray-800/40">
+            <td class="whitespace-nowrap px-3 py-2 text-gray-500">${new Date(e.created_at).toLocaleString()}</td>
+            <td class="px-3 py-2"><span class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${badge(e.event)}">${esc(e.event)}</span></td>
+            <td class="max-w-[10rem] truncate px-3 py-2 text-gray-300">${esc(e.path || '')}</td>
+            <td class="max-w-[12rem] truncate px-3 py-2 text-gray-400">${esc(e.label || '')}</td>
+            <td class="whitespace-nowrap px-3 py-2 text-gray-500">${esc([e.city, e.country].filter(Boolean).join(', '))}</td>
+            <td class="whitespace-nowrap px-3 py-2 text-gray-500">${esc(e.browser)} · ${esc(e.device)}</td>
         </tr>`).join('');
 
+    const groupHead = (label) =>
+        `<h4 class="mb-3 text-[11px] font-semibold uppercase tracking-widest text-gray-500">${label}</h4>`;
+
     host.innerHTML = `
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        ${groupHead('Overview')}
+        <div class="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
             ${stat('Visitors', n(t.visitors), `${n(t.returning)} returning`)}
-            ${stat('Sessions', n(t.sessions), `${r.events_per_session || 0} events each`)}
-            ${stat('Page views', n(t.pageviews), `${n(t.today)} events today`)}
-            ${stat('Clicks', n(t.clicks), `${n(t.outbound)} outbound`)}
-            ${stat('Bounce rate', `${r.bounce_pct || 0}%`, 'single-event sessions')}
+            ${stat('Sessions', n(t.sessions), `${r.events_per_session || 0} events each`, 'text-violet-300')}
+            ${stat('Page views', n(t.pageviews), `${n(t.today)} today`)}
+            ${stat('Clicks', n(t.clicks), `${n(t.outbound)} outbound`, 'text-amber-300')}
+            ${stat('Bounce rate', `${r.bounce_pct || 0}%`, 'single-event sessions', 'text-rose-300')}
             ${stat('Avg session', `${r.avg_session_min || 0} min`)}
             ${stat('Unique IPs', n(t.visitors_ip))}
-            ${stat('Total events', n(t.events), `last ${d.range_days} days`)}
+            ${stat('Total events', n(t.events), `last ${d.range_days} days`, 'text-emerald-300')}
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+        ${groupHead('Traffic')}
+        <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
             ${bars('Top pages', d.by_path)}
-            ${bars('Most clicked', d.by_click, (k) => k)}
+            ${bars('Most clicked', d.by_click)}
             ${bars('Referrers', d.by_referrer, (k) => { try { return new URL(k).hostname; } catch { return k; } })}
             ${bars('Countries', d.by_country)}
+            ${heat}
+        </div>
+
+        ${groupHead('Audience')}
+        <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
             ${bars('Browsers', d.by_browser)}
             ${bars('Devices', d.by_device)}
             ${bars('Operating systems', d.by_os)}
             ${bars('Screen sizes', d.by_screen)}
-            ${heat}
         </div>
-        <div class="bg-gray-900 rounded p-4">
-            <h3 class="text-sm font-semibold text-gray-300 mb-3">Recent activity</h3>
+
+        ${groupHead('Live feed')}
+        <div class="rounded-xl border border-gray-700/60 bg-gray-800/40 p-4">
             <div class="overflow-x-auto custom-scroll">
-                <table class="min-w-full text-xs text-left">
-                    <thead class="text-gray-500 uppercase">
-                        <tr><th class="px-3 py-2">Time</th><th class="px-3 py-2">Event</th>
-                        <th class="px-3 py-2">Path</th><th class="px-3 py-2">Label</th>
-                        <th class="px-3 py-2">Location</th><th class="px-3 py-2">Client</th></tr>
+                <table class="min-w-full text-left text-xs">
+                    <thead class="text-[10px] uppercase tracking-wider text-gray-500">
+                        <tr class="border-b border-gray-700/60">
+                            <th class="px-3 py-2 font-medium">Time</th><th class="px-3 py-2 font-medium">Event</th>
+                            <th class="px-3 py-2 font-medium">Path</th><th class="px-3 py-2 font-medium">Label</th>
+                            <th class="px-3 py-2 font-medium">Location</th><th class="px-3 py-2 font-medium">Client</th>
+                        </tr>
                     </thead>
-                    <tbody>${recent || '<tr><td colspan="6" class="px-3 py-6 text-center text-gray-600">No events yet.</td></tr>'}</tbody>
+                    <tbody>${recent || '<tr><td colspan="6" class="px-3 py-10 text-center text-gray-600">No events yet.</td></tr>'}</tbody>
                 </table>
             </div>
         </div>`;
