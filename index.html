@@ -2,6 +2,21 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <script>
+      /* Canonical host is shalomkarr.pages.dev. The same repo is also mirrored to
+         GitHub Pages, where analytics, the /api functions and clean URLs do not
+         exist — so bounce that mirror to the real domain. A bare <meta refresh>
+         cannot do this: both hosts serve this identical file, so an unconditional
+         refresh would redirect the real site to itself. Gate on the hostname and
+         preserve the path. replace() keeps it out of history. Runs first so it
+         fires before any CSS, image or analytics request. */
+      (function () {
+        if (location.hostname === 'shalom-karr.github.io') {
+          var rest = location.pathname.replace(/^\/ShalomKarr\.pages\.dev/i, '') || '/';
+          location.replace('https://shalomkarr.pages.dev' + rest + location.search + location.hash);
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0f172a">
 
