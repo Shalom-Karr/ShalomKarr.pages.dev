@@ -15,6 +15,8 @@ const tabAnalytics = document.getElementById('tab-analytics');
 const contentLogs = document.getElementById('content-logs');
 const contentProjects = document.getElementById('content-projects');
 const contentAnalytics = document.getElementById('content-analytics');
+const tabClicks = document.getElementById('tab-clicks');
+const contentClicks = document.getElementById('content-clicks');
 
 // Projects Elements
 const projectsList = document.getElementById('projects-list');
@@ -834,7 +836,64 @@ const switchTab = (tab) => {
         contentImages.classList.remove('hidden');
         // Load images when tab is shown
         loadImages();
+    } else if (tab === 'clicks') {
+        tabClicks.classList.remove('text-gray-400');
+        tabClicks.classList.add('text-blue-400', 'border-b-2', 'border-blue-400');
+        contentClicks.classList.remove('hidden');
+        loadClicks();
     }
+};
+
+// Reads the site_click_summary view rather than raw rows, so the browser
+// fetches tens of aggregated rows instead of every click ever recorded.
+const loadClicks = async () => {
+    const body = document.getElementById('clicks-body');
+    body.innerHTML = '<tr><td colspan="5" class="px-4 py-4 text-center text-gray-500">Loading…</td></tr>';
+
+    const { data, error } = await supabase
+        .from('site_click_summary')
+        .select('*')
+        .limit(200);
+
+    if (error) {
+        const hint = error.code === '42P01'
+            ? '<br><span class="text-gray-400">Run supabase/site_clicks.sql — the table and view do not exist yet.</span>'
+            : '';
+        body.innerHTML = `<tr><td colspan="5" class="px-4 py-4 text-center text-red-500">Error: ${error.message}${hint}</td></tr>`;
+        return;
+    }
+
+    const rows = data || [];
+    const total = rows.reduce((s, r) => s + Number(r.clicks || 0), 0);
+    const outbound = rows.filter((r) => r.kind === 'outbound')
+        .reduce((s, r) => s + Number(r.clicks || 0), 0);
+    document.getElementById('clicksTotal').textContent = total.toLocaleString();
+    document.getElementById('clicksDistinct').textContent = rows.length.toLocaleString();
+    document.getElementById('clicksOutbound').textContent = outbound.toLocaleString();
+
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="5" class="px-4 py-4 text-center text-gray-500">No clicks recorded yet.</td></tr>';
+        return;
+    }
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    body.innerHTML = rows.map((r) => {
+        const badge = r.kind === 'outbound' ? 'bg-amber-900 text-amber-300'
+            : r.kind === 'button' ? 'bg-purple-900 text-purple-300'
+            : 'bg-gray-700 text-gray-300';
+        const dest = r.href
+            ? `<a href="${esc(r.href)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline">${esc(r.href.slice(0, 60))}</a>`
+            : '<span class="text-gray-600">—</span>';
+        return `<tr class="border-b border-gray-700 hover:bg-gray-750">
+            <td class="px-4 py-3">${esc(r.label)}</td>
+            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs ${badge}">${esc(r.kind)}</span></td>
+            <td class="px-4 py-3 max-w-xs truncate">${dest}</td>
+            <td class="px-4 py-3 text-right font-semibold">${Number(r.clicks).toLocaleString()}</td>
+            <td class="px-4 py-3 text-gray-400">${r.last_clicked ? new Date(r.last_clicked).toLocaleString() : '—'}</td>
+        </tr>`;
+    }).join('');
 };
 
 
@@ -854,6 +913,8 @@ refreshAnalyticsButton.addEventListener('click', loadBlogAnalytics);
 tabLogs.addEventListener('click', () => switchTab('logs'));
 tabProjects.addEventListener('click', () => switchTab('projects'));
 tabAnalytics.addEventListener('click', () => switchTab('analytics'));
+tabClicks?.addEventListener('click', () => switchTab('clicks'));
+document.getElementById('refresh-clicks-button')?.addEventListener('click', loadClicks);
 
 projectsList.addEventListener('click', (e) => {
     const btn = e.target.closest('button');

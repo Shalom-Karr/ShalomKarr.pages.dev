@@ -114,9 +114,50 @@
                     <button id="tab-projects" class="tab-button px-6 py-3 font-semibold text-gray-400 hover:text-gray-200 transition-colors">
                         Manage Projects
                     </button>
+                    <button id="tab-clicks" class="tab-button px-6 py-3 font-semibold text-gray-400 hover:text-gray-200 transition-colors">
+                        Clicks
+                    </button>
                     <button id="tab-analytics" class="tab-button px-6 py-3 font-semibold text-gray-400 hover:text-gray-200 transition-colors">
                         Blog Analytics
                     </button>
+                </div>
+            </div>
+
+            <!-- Tab Content: Clicks -->
+            <div id="content-clicks" class="tab-content hidden">
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-semibold text-blue-400">What people click</h2>
+                        <button id="refresh-clicks-button" class="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-gray-300">Refresh</button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="bg-gray-900 rounded p-4">
+                            <p class="text-xs uppercase text-gray-500">Total clicks</p>
+                            <p id="clicksTotal" class="text-2xl font-semibold text-blue-400">—</p>
+                        </div>
+                        <div class="bg-gray-900 rounded p-4">
+                            <p class="text-xs uppercase text-gray-500">Distinct targets</p>
+                            <p id="clicksDistinct" class="text-2xl font-semibold text-blue-400">—</p>
+                        </div>
+                        <div class="bg-gray-900 rounded p-4">
+                            <p class="text-xs uppercase text-gray-500">Outbound</p>
+                            <p id="clicksOutbound" class="text-2xl font-semibold text-blue-400">—</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto custom-scroll">
+                        <table class="min-w-full text-left text-sm text-gray-300">
+                            <thead class="bg-gray-700 text-gray-100 uppercase font-medium">
+                                <tr>
+                                    <th class="px-4 py-3 rounded-tl-lg">Label</th>
+                                    <th class="px-4 py-3">Kind</th>
+                                    <th class="px-4 py-3">Destination</th>
+                                    <th class="px-4 py-3 text-right">Clicks</th>
+                                    <th class="px-4 py-3 rounded-tr-lg">Last</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clicks-body"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 

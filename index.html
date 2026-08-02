@@ -1625,5 +1625,11 @@ From a dripping faucet to the shelf that never got hung — Y.S. Handymen handle
     </div>
 
     <script type="module" src="/script.js"></script>
+    <script type="module">
+      // Kept out of script.js so a Supabase or network failure in analytics can
+      // never stop the site's own behaviour from loading.
+      import { initAnalytics } from '/analytics.js';
+      initAnalytics();
+    </script>
 </body>
 </html>
