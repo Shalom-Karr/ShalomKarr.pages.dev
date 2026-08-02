@@ -157,7 +157,7 @@ BEGIN
 
     'recent', (
       SELECT COALESCE(jsonb_agg(r), '[]'::jsonb) FROM (
-        SELECT created_at, event, path, label, href, country, city, browser, os, device, referrer
+        SELECT created_at, event, path, label, href, ip, country, city, browser, os, device, referrer
         FROM ev ORDER BY created_at DESC LIMIT 100
       ) r
     )

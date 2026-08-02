@@ -966,6 +966,7 @@ const loadClicks = async () => {
             <td class="px-3 py-2"><span class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${badge(e.event)}">${esc(e.event)}</span></td>
             <td class="max-w-[10rem] truncate px-3 py-2 text-gray-300">${esc(e.path || '')}</td>
             <td class="max-w-[12rem] truncate px-3 py-2 text-gray-400">${esc(e.label || '')}</td>
+            <td class="whitespace-nowrap px-3 py-2 font-mono text-gray-400">${esc(e.ip || '—')}</td>
             <td class="whitespace-nowrap px-3 py-2 text-gray-500">${esc([e.city, e.country].filter(Boolean).join(', '))}</td>
             <td class="whitespace-nowrap px-3 py-2 text-gray-500">${esc(e.browser)} · ${esc(e.device)}</td>
         </tr>`).join('');
@@ -1011,10 +1012,11 @@ const loadClicks = async () => {
                         <tr class="border-b border-gray-700/60">
                             <th class="px-3 py-2 font-medium">Time</th><th class="px-3 py-2 font-medium">Event</th>
                             <th class="px-3 py-2 font-medium">Path</th><th class="px-3 py-2 font-medium">Label</th>
+                            <th class="px-3 py-2 font-medium">IP</th>
                             <th class="px-3 py-2 font-medium">Location</th><th class="px-3 py-2 font-medium">Client</th>
                         </tr>
                     </thead>
-                    <tbody>${recent || '<tr><td colspan="6" class="px-3 py-10 text-center text-gray-600">No events yet.</td></tr>'}</tbody>
+                    <tbody>${recent || '<tr><td colspan="7" class="px-3 py-10 text-center text-gray-600">No events yet.</td></tr>'}</tbody>
                 </table>
             </div>
         </div>`;
