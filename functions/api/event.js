@@ -89,8 +89,14 @@ export async function onRequestPost(context) {
     meta: e.meta || null,
   }));
 
+  // ?debug=1 reports whether the insert actually succeeded. Normal requests stay
+  // silent, because a visitor must never see an analytics failure - but that
+  // silence also hides a misconfigured key, so there has to be a way to ask.
+  // Returns PostgREST's status and message only; never the key.
+  const debug = new URL(request.url).searchParams.get('debug') === '1';
+
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/site_events`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/site_events`, {
       method: 'POST',
       headers: {
         apikey: key,
@@ -100,7 +106,18 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify(rows),
     });
-  } catch {
+    if (debug) {
+      const text = res.ok ? '' : await res.text();
+      return new Response(
+        JSON.stringify({ ok: res.ok, status: res.status, rows: rows.length, error: text.slice(0, 400) }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+  } catch (e) {
+    if (debug) {
+      return new Response(JSON.stringify({ ok: false, threw: String(e).slice(0, 300) }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     // Swallow: analytics must never affect the response the visitor gets.
   }
 
